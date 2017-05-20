@@ -1,0 +1,84 @@
+/*====================================================================
+
+ This file creates a amplifier procedure for LDO.
+
+ Built On May 15, 2017 by YashuLi .
+
+=====================================================================*/
+
+//文件调用，discipline.h是Vereilog-A中预先定义的discipline，而discipline是用来定义结点类型的。
+//constants.h是Vereilog-A中预先定义的一些常量，例如电子电荷、自然对数、普克朗常数等。
+`include "discipline.h"
+`include "constants.h"
+
+// 差分输入、单端输出运放module
+
+						   
+module opamp (vout, vin_p, vin_n, vspply_p, vspply_n  );
+//定义输入-输出管脚 vin_p , vin_n,vspply_p, vspply_n
+  inout  vin_p , vin_n;
+  inout  vspply_p, vspply_n;
+//定义输出管脚vout
+  output vout;
+//定义具有电学特性的节点
+  electrical vin_p, vin_n, vout, vspply_p, vspply_n;
+ 
+//定义运放的各项参数值
+   parameter real        gain = 10000 exclude 0.0;//设置运放的增益；exclude在此定义一个不合法的参数，即gain不能为0
+   parameter real        pole_freq = 20;//设置第一个主极点的位置
+   parameter real        rin = 12.0M exclude 0.0;//设置输入电阻值
+   parameter real        rout = 75.0;//设置输入电阻值
+   parameter real        ibias = 0.0n;//设置输入电流值
+   parameter real        vin_offset = 15u; //设置失调电压
+   parameter real        pole_sec  =  18.0M;//设置次主极点的位置
+   
+//定义运放电容、电阻、电流、电压
+   real c1, r1;
+   real r_rout,gm_nom, vin_val;
+   real vmax_in_p, vmax_in_n, iin_max_p, iin_max_n;
+   electrical cout, vref; 				   
+   electrical c2;
+
+    analog begin
+//r1,gm_nom,c1,r_rout初始化;initial_step用于指定一个操作/分析的开始；xf为传递函数分析
+       @(initial_step or initial_step("dc", "ac", "tran", "xf")) begin
+                r1 = gain;
+            gm_nom = 1.0;
+                c1 = 1/(`M_TWO_PI * pole_freq * gain);//`M_TWO_PI是头文件中定义的常量，为2π
+            r_rout = rout;	   
+
+        end
+//V(vin_p, vin_n)表示节点vin_p和vin_n之间的电压（差分输入），实际输入电压为差模电压加上失调电压
+      vin_val=  V(vin_p, vin_n) + vin_offset;
+
+//描述小信号模型
+      V(vspply_n, vref) <+ V(vspply_n) + (0.5*(V(vspply_p)-V(vspply_n)));
+
+//描述输入级的小信号模型
+      I(vin_p, vin_n) <+ vin_val / rin;
+      I(vref, vin_p)  <+ ibias;
+      I(vref, vin_n)  <+ ibias;
+
+//描述增益级的小信号模型
+      I(vref, cout) <+ gm_nom*vin_val ;	//跨导乘以实际输入电压		   				  
+//描述第一个极点
+      I(cout, vref) <+ ddt(c1*V(cout, vref));//ddt是表示微分
+      I(cout, vref) <+ V(cout, vref)/r1;
+
+
+//描述第二个极点，laplace_zp是零极点-拉普拉斯变换，通过表示出传递函数，从而设置第二个极点。详情请见《cadence_verilog-a_language_reference》P160
+      V(vref,c2)   <+ laplace_zp( V(vref,cout), {},
+                       {-2.0 * `M_PI * pole_sec,0, -2.0 * `M_PI * pole_sec,0 } ); 									   
+
+
+//描述第二级的小信号模型
+				   
+      I(vref, vout) <+ V(c2, vref)/r_rout;				   
+      I(vout, vref) <+ V(vout, vref)/r_rout;
+
+ 
+
+    end
+endmodule
+
+//
